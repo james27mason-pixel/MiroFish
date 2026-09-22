@@ -13,7 +13,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true,
+    host: '0.0.0.0',
+    allowedHosts: ['mirofish-dzwy.onrender.com'],
+    open: false,
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
