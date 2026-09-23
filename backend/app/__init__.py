@@ -13,9 +13,6 @@ from flask_cors import CORS
 from .config import Config
 from .utils.logger import setup_logger, get_logger
 
-# IDs accepted by MiroFish are generated internally with prefixes such as
-# proj_, sim_, report_. Restricting request-supplied identifiers prevents
-# path traversal through values later passed to os.path.join().
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SAFE_PLATFORM_VALUES = {"twitter", "reddit"}
 ID_KEYS = {"project_id", "simulation_id", "report_id", "graph_id"}
@@ -48,8 +45,11 @@ def create_app(config_class=Config):
         logger.info("MiroFish Backend starting...")
         logger.info("=" * 50)
 
-    # Same-origin production deployment: cross-origin API access is not needed.
-    # Keep localhost origins only for local development.
+    # Restore projects/simulations/reports before managers inspect local state.
+    from .services import persistence
+    persistence.start()
+
+    # Production is same-origin. Only local development needs explicit CORS.
     CORS(
         app,
         resources={r"/api/*": {"origins": [
@@ -68,7 +68,6 @@ def create_app(config_class=Config):
 
     @app.before_request
     def security_gate():
-        # Health endpoint stays unauthenticated so Render can monitor the service.
         if request.path == '/health':
             return None
 
@@ -88,21 +87,18 @@ def create_app(config_class=Config):
                     {'WWW-Authenticate': 'Basic realm="MiroFish", charset="UTF-8"'},
                 )
 
-        # Validate path parameters exposed by Flask routes.
         for key, value in (request.view_args or {}).items():
             if key in ID_KEYS and _invalid_identifier(value):
                 return jsonify({'error': f'Invalid {key}'}), 400
             if key == 'platform' and value not in SAFE_PLATFORM_VALUES:
                 return jsonify({'error': 'Invalid platform'}), 400
 
-        # Validate identifier-like values supplied in query parameters.
         for key in ID_KEYS:
             if key in request.args and _invalid_identifier(request.args.get(key)):
                 return jsonify({'error': f'Invalid {key}'}), 400
         if 'platform' in request.args and request.args.get('platform') not in SAFE_PLATFORM_VALUES:
             return jsonify({'error': 'Invalid platform'}), 400
 
-        # Validate JSON bodies before service code can use IDs as filesystem paths.
         if request.is_json:
             body = request.get_json(silent=True)
             if isinstance(body, dict):
@@ -115,8 +111,7 @@ def create_app(config_class=Config):
 
     @app.before_request
     def log_request():
-        # Never log request bodies: simulation prompts and credentials can contain
-        # commercially sensitive material.
+        # Never log request bodies; prompts can contain commercially sensitive data.
         get_logger('mirofish.request').debug(
             f"request: {request.method} {request.path}"
         )
@@ -139,7 +134,10 @@ def create_app(config_class=Config):
         )
         if request.is_secure:
             response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-        response.headers['Cache-Control'] = 'no-store' if request.path.startswith('/api/') else response.headers.get('Cache-Control', 'no-cache')
+        response.headers['Cache-Control'] = (
+            'no-store' if request.path.startswith('/api/')
+            else response.headers.get('Cache-Control', 'no-cache')
+        )
         return response
 
     from .api import graph_bp, simulation_bp, report_bp
@@ -149,7 +147,11 @@ def create_app(config_class=Config):
 
     @app.route('/health')
     def health():
-        return {'status': 'ok', 'service': 'MiroFish Backend'}
+        return {
+            'status': 'ok',
+            'service': 'MiroFish Backend',
+            'durable_persistence': persistence.enabled(),
+        }
 
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
