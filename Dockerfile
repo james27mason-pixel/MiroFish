@@ -24,9 +24,15 @@ COPY . .
 # LLM_MODEL_NAME. CAMEL's OPENAI backend in the pinned version validates the
 # model name against its own enum, so newer model IDs can fail before making
 # an API request. Route this configurable model through CAMEL's compatible
-# backend and pass the URL/key explicitly. The assertion makes the image build
-# fail loudly if the upstream source changes instead of silently skipping it.
-RUN python -c 'from pathlib import Path; p=Path("backend/scripts/run_parallel_simulation.py"); s=p.read_text(); old="""    return ModelFactory.create(\n        model_platform=ModelPlatformType.OPENAI,\n        model_type=llm_model,\n    )"""; new="""    return ModelFactory.create(\n        model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,\n        model_type=llm_model,\n        url=llm_base_url or \"https://api.openai.com/v1\",\n        api_key=llm_api_key or os.environ.get(\"OPENAI_API_KEY\"),\n    )"""; assert old in s, "CAMEL model factory block changed; update Dockerfile patch"; p.write_text(s.replace(old,new,1))'
+# backend and pass the URL/key explicitly.
+#
+# OASIS 0.2.5 also performs an isinstance() check against the
+# DefaultPlatformType class imported inside oasis.environment.env. Importing
+# the enum through the top-level oasis re-export can fail that identity check
+# in some packaged/runtime layouts, producing "Invalid platform" before any
+# LLM request is sent. Resolve the enum from the exact defining module used by
+# OasisEnv for both Twitter and Reddit.
+RUN python -c 'from pathlib import Path; p=Path("backend/scripts/run_parallel_simulation.py"); s=p.read_text(); old="""    return ModelFactory.create(\n        model_platform=ModelPlatformType.OPENAI,\n        model_type=llm_model,\n    )"""; new="""    return ModelFactory.create(\n        model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,\n        model_type=llm_model,\n        url=llm_base_url or \"https://api.openai.com/v1\",\n        api_key=llm_api_key or os.environ.get(\"OPENAI_API_KEY\"),\n    )"""; assert old in s, "CAMEL model factory block changed; update Dockerfile patch"; s=s.replace(old,new,1); tw="platform=oasis.DefaultPlatformType.TWITTER"; rd="platform=oasis.DefaultPlatformType.REDDIT"; exact="__import__(\"oasis.social_platform.typing\", fromlist=[\"DefaultPlatformType\"]).DefaultPlatformType"; assert tw in s and rd in s, "OASIS platform call changed; update Dockerfile patch"; s=s.replace(tw, "platform="+exact+".TWITTER", 1).replace(rd, "platform="+exact+".REDDIT", 1); p.write_text(s)'
 
 # Build the Vue frontend once for production. Flask serves the built files
 # and the API from the same Render port.
