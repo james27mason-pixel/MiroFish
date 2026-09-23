@@ -14,7 +14,9 @@ from .config import Config
 from .utils.logger import setup_logger, get_logger
 
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-SAFE_PLATFORM_VALUES = {"twitter", "reddit"}
+# Step 3 supports the two individual OASIS worlds and the dual-world runner.
+# Keep this validation in sync with /api/simulation/start.
+SAFE_PLATFORM_VALUES = {"twitter", "reddit", "parallel"}
 ID_KEYS = {"project_id", "simulation_id", "report_id", "graph_id"}
 
 
