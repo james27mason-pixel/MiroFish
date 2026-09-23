@@ -1,8 +1,9 @@
 FROM python:3.11
 
-# Install Node.js and required tools
+# Install Node.js plus the small PostgreSQL client used by the durable
+# Supabase snapshot layer. No database credentials are baked into the image.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends nodejs npm \
+  && apt-get install -y --no-install-recommends nodejs npm postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
